@@ -57,29 +57,42 @@ app.get('*', (req, res) => {
 });
 
 // ── Iniciar ───────────────────────────────────────────────────
-const isVercel = process.env.VERCEL || process.env.NOW_REGION;
+const isVercel = !!(process.env.VERCEL || process.env.NOW_REGION);
 
-sequelize.authenticate()
-  .then(() => {
-    console.log('✅  Conectado ao Supabase (PostgreSQL)!');
+async function iniciar() {
+  try {
+    await sequelize.authenticate();
+    console.log('✅  Conectado ao Supabase!');
 
-    // Criar tabela de convênios se não existir
-    return Convenio.sync({ alter: false });
-  })
-  .then(() => {
+    // Criar tabela convenios se não existir (seguro, não altera existentes)
+    try {
+      await Convenio.sync({ force: false, alter: false });
+      console.log('✅  Tabela convenios OK');
+    } catch (e) {
+      console.warn('⚠️  Convenio.sync falhou (rode o SQL manualmente):', e.message);
+    }
+
     if (!isVercel) {
-      // Iniciar job de lembretes apenas fora do Vercel (serverless não suporta cron)
-      const { iniciarJobLembretes } = require('./services/lembreteService');
-      iniciarJobLembretes();
+      // Job de lembretes só roda localmente (Vercel é serverless)
+      try {
+        const { iniciarJobLembretes } = require('./services/lembreteService');
+        iniciarJobLembretes();
+      } catch (e) {
+        console.warn('⚠️  Job de lembretes não iniciado:', e.message);
+      }
 
       const PORT = process.env.PORT || 3033;
       app.listen(PORT, () => {
-        console.log(`🚀  PsicoManager → http://localhost:${PORT}/login.html`);
+        console.log(`🚀  http://localhost:${PORT}/login.html`);
       });
     }
-  })
-  .catch(err => {
+  } catch (err) {
     console.error('❌  Falha ao conectar:', err.message);
-  });
+    // No Vercel, não podemos chamar process.exit — apenas logar
+    if (!isVercel) process.exit(1);
+  }
+}
+
+iniciar();
 
 module.exports = app;
